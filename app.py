@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify
-import os
 
 app = Flask(__name__)
 
@@ -11,5 +10,4 @@ def check():
         "input": data
     })
 
-port = int(os.environ.get("PORT", 5500))
-app.run(host="0.0.0.0", port=port)
+app.run(host="0.0.0.0", port=5500)
