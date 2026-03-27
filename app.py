@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, Response
 import requests
 from bs4 import BeautifulSoup
 import random
@@ -29,7 +29,7 @@ def check():
     amount = request.args.get("amount")
 
     if not url or not card or not amount:
-        return jsonify({"result": "Missing params"}), 400
+        return Response("Missing params", status=400)
 
     try:
         number, month, year, cvv = card.split("|")
@@ -67,19 +67,30 @@ def check():
                 }
 
                 ajax_url = url.split("/give")[0] + "/wp-admin/admin-ajax.php"
-                resp = session.post(ajax_url, data=payload, headers=headers, timeout=15)
 
-                return jsonify({"result": resp.text[:500]})  # JSON دايمًا
+                resp = session.post(
+                    ajax_url,
+                    data=payload,
+                    headers=headers,
+                    timeout=15
+                )
+
+                # 🔥 رجّع الرد زي ما هو بدون أي تعديل
+                return Response(
+                    resp.text,
+                    status=resp.status_code,
+                    content_type=resp.headers.get("Content-Type", "text/plain")
+                )
 
             except Exception:
                 time.sleep(1)
 
-        return jsonify({"result": "Request failed after retry"}), 500
+        return Response("Request failed after retry", status=500)
 
     except Exception as e:
-        return jsonify({"result": str(e)}), 500
+        return Response(str(e), status=500)
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
-    
