@@ -8,22 +8,24 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 TOKEN = "8647240736:AAEGXuwmtZkUvAfbURX2BcyyuoWD-TekP_0"
 
-url_pattern = re.compile(r'https?://[^\s",]+')
-
-# -------- استخراج الروابط من CSV أو TXT --------
+# -------- استخراج الروابط --------
 def extract_links(file_path):
     links = set()
     with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
         content = f.read()
-        for link in url_pattern.findall(content):
-            links.add(link.strip())
+        for word in content.split():
+            if word.startswith("http://") or word.startswith("https://"):
+                word = word.strip().strip(",;()[]{}<>")
+                links.add(word)
     try:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             reader = csv.reader(f)
             for row in reader:
                 for cell in row:
-                    for link in url_pattern.findall(cell):
-                        links.add(link.strip())
+                    for word in cell.split():
+                        if word.startswith("http://") or word.startswith("https://"):
+                            word = word.strip().strip(",;()[]{}<>")
+                            links.add(word)
     except:
         pass
     return list(links)
@@ -39,9 +41,9 @@ def is_target(html):
     keywords = ["give", "donate", "donation", "support"]
     return any(k in text for k in keywords)
 
-# -------- استخراج الفورم --------
-def extract_form(soup, link):
-    # form
+# -------- استخراج الفورم النهائي للتبرع --------
+def extract_donation_link(soup, link):
+    # الفورم الأساسي
     for f in soup.find_all("form"):
         action = f.get("action") or ""
         if action:
@@ -68,8 +70,8 @@ async def check_site(session, link):
             if not is_target(html):
                 return None
             soup = BeautifulSoup(html, "html.parser")
-            form = extract_form(soup, link)
-            return form if form else link
+            donation_link = extract_donation_link(soup, link)
+            return donation_link if donation_link else link
     except:
         return None
 
@@ -102,7 +104,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f.write(r + "\n")
 
     # إرسال رسالة مع عدد الروابط
-    await update.message.reply_text(f"✅ الفحص خلص! تم استخراج {len(results)} رابط")
+    await update.message.reply_text(f"✅ الفحص خلص! تم استخراج {len(results)} رابط 🔥")
 
     # إرسال الملف
     await update.message.reply_document(InputFile(output_path))
@@ -110,5 +112,5 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -------- تشغيل البوت --------
 app = Application.builder().token(TOKEN).build()
 app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
-print("🤖 BOT RUNNING...")
+print("🤖 BOT RUNNING...🔥")
 app.run_polling()
