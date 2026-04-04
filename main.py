@@ -80,8 +80,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     output_path = "result.txt"
     await file.download_to_drive(input_path)
     await update.message.reply_text("🔥 جاري الفحص...")
+
     links = extract_links(input_path)
     results = []
+
     connector = aiohttp.TCPConnector(limit=200)
     timeout = aiohttp.ClientTimeout(total=15)
     async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
@@ -90,11 +92,19 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             res = await future
             if res:
                 results.append(res)
+
     # إزالة التكرار
     results = list(set(results))
+
+    # حفظ النتائج
     with open(output_path, "w", encoding="utf-8") as f:
         for r in results:
             f.write(r + "\n")
+
+    # إرسال رسالة مع عدد الروابط
+    await update.message.reply_text(f"✅ الفحص خلص! تم استخراج {len(results)} رابط")
+
+    # إرسال الملف
     await update.message.reply_document(InputFile(output_path))
 
 # -------- تشغيل البوت --------
