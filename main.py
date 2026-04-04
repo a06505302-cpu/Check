@@ -141,7 +141,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ========= RUN =========
 if __name__ == "__main__":
-    app = ApplicationBuilder().token("8647240736:AAEGXuwmtZkUvAfbURX2BcyyuoWD-TekP_0").build()
+    app = ApplicationBuilder().token("8539098531:AAHizeT66679WvTnwvELRGQ2zN89_4UZ_WY").build()
     app.add_handler(CommandHandler("site", site_command))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     print("Bot Started...")
