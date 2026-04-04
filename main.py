@@ -1,14 +1,13 @@
-import re
-import csv
 import asyncio
-import aiohttp
 from bs4 import BeautifulSoup
 from telegram import Update, InputFile
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from playwright.async_api import async_playwright
+import csv
 
 TOKEN = "8647240736:AAEGXuwmtZkUvAfbURX2BcyyuoWD-TekP_0"
 
-# -------- استخراج الروابط --------
+# -------- استخراج الروابط من TXT/CSV --------
 def extract_links(file_path):
     links = set()
     with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -30,20 +29,8 @@ def extract_links(file_path):
         pass
     return list(links)
 
-# -------- تجاهل المواقع المحمية --------
-def has_protection(text):
-    text = text.lower()
-    return any(x in text for x in ["cloudflare", "cf-ray", "captcha", "recaptcha", "hcaptcha"])
-
-# -------- تحقق كلمات الهدف --------
-def is_target(html):
-    text = html.lower()
-    keywords = ["give", "donate", "donation", "support"]
-    return any(k in text for k in keywords)
-
-# -------- استخراج الفورم النهائي للتبرع --------
+# -------- استخراج الفورم النهائي --------
 def extract_donation_link(soup, link):
-    # الفورم الأساسي
     for f in soup.find_all("form"):
         action = f.get("action") or ""
         if action:
@@ -51,59 +38,54 @@ def extract_donation_link(soup, link):
                 return action
             else:
                 return link.rstrip("/") + "/" + action.lstrip("/")
-    # iframe
     for iframe in soup.find_all("iframe"):
         src = iframe.get("src")
         if src and "http" in src:
             return src
     return None
 
-# -------- فحص الموقع --------
-async def check_site(session, link):
+# -------- فحص الرابط باستخدام Playwright --------
+async def check_site(link, browser):
     try:
-        async with session.get(link) as r:
-            if r.status != 200:
-                return None
-            html = await r.text()
-            if has_protection(html):
-                return None
-            if not is_target(html):
-                return None
-            soup = BeautifulSoup(html, "html.parser")
-            donation_link = extract_donation_link(soup, link)
-            return donation_link if donation_link else link
+        page = await browser.new_page()
+        await page.goto(link, timeout=30000)
+        content = await page.content()
+        soup = BeautifulSoup(content, "html.parser")
+        donation_link = extract_donation_link(soup, link)
+        await page.close()
+        return donation_link if donation_link else link
     except:
-        return None
+        return link
 
-# -------- معالجة الملف وإرسال النتائج --------
+# -------- التعامل مع الملف وإرسال النتائج --------
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file = await update.message.document.get_file()
     input_path = "input_file"
     output_path = "result.txt"
     await file.download_to_drive(input_path)
-    await update.message.reply_text("🔥 جاري الفحص...")
+    await update.message.reply_text("🔥 جاري الفحص بالـ Playwright...")
 
     links = extract_links(input_path)
     results = []
 
-    connector = aiohttp.TCPConnector(limit=200)
-    timeout = aiohttp.ClientTimeout(total=15)
-    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-        tasks = [check_site(session, link) for link in links]
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        tasks = [check_site(link, browser) for link in links]
         for future in asyncio.as_completed(tasks):
             res = await future
             if res:
                 results.append(res)
+        await browser.close()
 
-    # إزالة التكرار
-    results = list(set(results))
+    # إزالة التكرار مع الحفاظ على الترتيب
+    results = list(dict.fromkeys(results))
 
     # حفظ النتائج
     with open(output_path, "w", encoding="utf-8") as f:
         for r in results:
             f.write(r + "\n")
 
-    # إرسال رسالة مع عدد الروابط
+    # إرسال رسالة وعدد الروابط
     await update.message.reply_text(f"✅ الفحص خلص! تم استخراج {len(results)} رابط 🔥")
 
     # إرسال الملف
